@@ -1,0 +1,13 @@
+[Unit]
+Description=Divaller Compatibility Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/deck/Games/divabridge/start.sh
+WorkingDirectory=/home/deck/Games/divabridge/
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
