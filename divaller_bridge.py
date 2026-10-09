@@ -3,11 +3,12 @@
 Linux side of the Divaller shim for TLAC under Wine.
 
 Owns the Divaller (VID 0E8F / PID 2213) through libusb and serves its pipes
-to DivallerBridge.dva over TCP on 127.0.0.1. Run it before (or while) the game
+to DivallerBridge.dva over TCP (127.0.0.1 by default; --host 0.0.0.0 to let
+the game connect from another machine). Run it before (or while) the game
 is running; the shim reconnects on its own.
 
     pip install pyusb            # plus libusb-1.0 from your distro
-    python3 divaller_bridge.py   # --port N, --verbose, --tui
+    python3 divaller_bridge.py   # --host ADDR, --port N, --verbose, --tui
 
 Protocol (requests start with one opcode byte):
     'P'                         -> status(1)                   device present?
@@ -267,7 +268,7 @@ FACE = [  # left to right, as on the controller
 SMALL = [("l1", "L1", "coin"), ("l2", "L2", "service"), ("l3", "L3", "test")]
 
 
-def tui(stdscr, divaller, port):
+def tui(stdscr, divaller, listen):
     import curses
 
     curses.curs_set(0)
@@ -378,7 +379,7 @@ def tui(stdscr, divaller, port):
         game_txt = f"connected ({divaller.clients})" if divaller.clients else "waiting"
         put(13, x0 + 24, "Game: ", curses.A_DIM)
         put(13, x0 + 30, game_txt, color("green" if divaller.clients else "yellow") | curses.A_BOLD)
-        put(13, x0 + 48, f"{rate:6.0f} pkt/s   port {port}", curses.A_DIM)
+        put(13, x0 + 48, f"{rate:6.0f} pkt/s   {listen}", curses.A_DIM)
         raw = pkt.hex(" ") if pkt else "(no packet yet)"
         put(14, x0 + 1, "raw: " + raw[:W - 7], curses.A_DIM)
         put(15, x0 + 1, "q to quit", curses.A_DIM)
@@ -394,6 +395,8 @@ def tui(stdscr, divaller, port):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="address to listen on (default 127.0.0.1; 0.0.0.0 for all interfaces)")
     ap.add_argument("--port", type=int, default=45710)
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--tui", action="store_true",
@@ -404,8 +407,11 @@ def main():
     _log_to_buffer = args.tui
 
     divaller = Divaller(args.verbose)
-    with Server(("127.0.0.1", args.port), make_handler(divaller)) as srv:
-        log(f"Divaller bridge listening on 127.0.0.1:{args.port}")
+    listen = f"{args.host}:{args.port}"
+    with Server((args.host, args.port), make_handler(divaller)) as srv:
+        log(f"Divaller bridge listening on {listen}")
+        if args.host not in ("127.0.0.1", "localhost", "::1"):
+            log("note: the bridge has no authentication; only expose it on a network you trust")
         if not args.tui:
             try:
                 srv.serve_forever()
@@ -418,7 +424,7 @@ def main():
         locale.setlocale(locale.LC_ALL, "")
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         try:
-            curses.wrapper(tui, divaller, args.port)
+            curses.wrapper(tui, divaller, listen)
         except KeyboardInterrupt:
             pass
         finally:
